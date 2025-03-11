@@ -1519,8 +1519,12 @@ app.get('/mis-encuestas/:idusuario', (req, res) => {
       ea.cantidad,
       ea.fecha_creacion,
       ea.estado,
-      e.nombre_encuesta ,  -- Nombre de la encuesta
-      u.nombre             -- Nombre del usuario
+      e.nombre_encuesta,  -- Nombre de la encuesta
+      u.nombre,           -- Nombre del usuario
+      (SELECT COUNT(DISTINCT fecha_creacion) 
+      FROM respuestas 
+      WHERE idusuario = ea.idusuario AND id_encuesta = ea.id_encuesta
+      ) AS completadas    -- Veces que el usuario ha completado la encuesta
     FROM 
       encuestas_asignadas ea
     JOIN 
@@ -1540,7 +1544,6 @@ app.get('/mis-encuestas/:idusuario', (req, res) => {
     res.status(200).json(results);
   });
 });
-
 
 // Endpoint POST para asignar una nueva encuesta
 app.post('/nueva-encuesta-asignada', (req, res) => {
@@ -1576,25 +1579,24 @@ app.put('/actualizar-encuesta-asignada/:id_asignacion', (req, res) => {
   });
 });
 
-
 app.put('/verificar-completado/:idusuario/:id_encuesta', (req, res) => {
   const { idusuario, id_encuesta } = req.params;
 
-  // Paso 1: Obtener la cantidad de respuestas que el usuario ha enviado para esta encuesta
+  // Paso 1: Obtener la cantidad de veces que el usuario ha completado la encuesta
   db.query(
-    `SELECT COUNT(*) AS respuestas_enviadas 
+    `SELECT COUNT(DISTINCT fecha_creacion) AS veces_completadas
      FROM respuestas 
      WHERE idusuario = ? AND id_encuesta = ?`,
     [idusuario, id_encuesta],
     (error, results) => {
       if (error) {
-        console.error('Error al contar las respuestas del usuario:', error);
+        console.error('Error al contar las veces completadas:', error);
         return res.status(500).json({ message: 'Error interno del servidor' });
       }
 
-      const respuestasEnviadas = results[0].respuestas_enviadas;
+      const vecesCompletadas = results[0].veces_completadas;
 
-      // Paso 2: Obtener la cantidad de respuestas permitidas para esta encuesta
+      // Paso 2: Obtener la cantidad de veces que el usuario debe completar la encuesta
       db.query(
         `SELECT cantidad 
          FROM encuestas_asignadas 
@@ -1613,7 +1615,7 @@ app.put('/verificar-completado/:idusuario/:id_encuesta', (req, res) => {
           const cantidadPermitida = results[0].cantidad;
 
           // Paso 3: Verificar si el usuario ha alcanzado la cantidad permitida
-          if (respuestasEnviadas >= cantidadPermitida) {
+          if (vecesCompletadas >= cantidadPermitida) { // Usar >= para cubrir casos donde el usuario complete más de lo requerido
             // Paso 4: Marcar la encuesta como completada
             db.query(
               `UPDATE encuestas_asignadas 
