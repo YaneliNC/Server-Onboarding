@@ -233,15 +233,19 @@ const deleteOpcionRespuesta = (id_opcion, callback) => {
 };
 
 // Modelo para la tabla respuestas
-const createRespuesta = async (id_pregunta, id_opcion, texto_respuesta, idusuario, id_encuesta, callback) => {
+const createRespuesta = async (id_pregunta, id_opcion, texto_respuesta, idusuario, id_encuesta, id_asignacion, callback) => {
   try {
-    const query = 'INSERT INTO respuestas (id_pregunta, id_opcion, texto_respuesta, idusuario, id_encuesta) VALUES (?, ?, ?, ?, ?)';
-    db.query(query, [id_pregunta, id_opcion, texto_respuesta, idusuario, id_encuesta], callback);
+    const query = `
+      INSERT INTO respuestas 
+        (id_pregunta, id_opcion, texto_respuesta, idusuario, id_encuesta, id_asignacion) 
+      VALUES 
+        (?, ?, ?, ?, ?, ?)
+    `;
+    db.query(query, [id_pregunta, id_opcion, texto_respuesta, idusuario, id_encuesta, id_asignacion], callback);
   } catch (err) {
     callback(err, null);
   }
 };
-
 const updateRespuesta = async (id_respuesta, id_pregunta, id_opcion, texto_respuesta, idusuario, id_encuesta, callback) => {
   try {
     const query = 'UPDATE respuestas SET id_pregunta = ?, id_opcion = ?, texto_respuesta = ?, idusuario = ?, id_encuesta = ? WHERE id_respuesta = ?';
@@ -258,13 +262,19 @@ const deleteRespuesta = (id_respuesta, callback) => {
 
 
 // Modelo para la tabla encuestas_asignadas
-const createEncuestaAsignada = async (idusuario, id_encuesta, cantidad, callback) => {
-  try {
-    const query = 'INSERT INTO encuestas_asignadas (idusuario, id_encuesta, cantidad) VALUES (?, ?, ?)';
-    db.query(query, [idusuario, id_encuesta, cantidad], callback);
-  } catch (err) {
-    callback(err, null);
-  }
+const createEncuestaAsignada = (idusuario, id_encuesta, cantidad, callback) => {
+  const query = 'INSERT INTO encuestas_asignadas (idusuario, id_encuesta, cantidad) VALUES (?, ?, ?)';
+  
+  db.query(query, [idusuario, id_encuesta, cantidad], (err, results) => {
+    if (err) {
+      callback(err, null);
+      return;
+    }
+    
+    // Devuelve el id_asignacion generado
+    const id_asignacion = results.insertId;
+    callback(null, id_asignacion);
+  });
 };
 
 const updateEncuestaAsignada = async (id_asignacion, idusuario, id_encuesta, cantidad, callback) => {
@@ -1354,11 +1364,11 @@ app.get('/respuestas', (req, res) => {
 
 // Endpoint POST para registrar una nueva respuesta
 app.post('/nueva-respuesta', (req, res) => {
-  const { id_pregunta, id_opcion, texto_respuesta, idusuario, id_encuesta } = req.body;
+  const { id_pregunta, id_opcion, texto_respuesta, idusuario, id_encuesta, id_asignacion } = req.body;
 
   // Validar campos obligatorios
-  if (!id_pregunta || !idusuario || !id_encuesta) {
-    return res.status(400).json({ error: "Los campos id_pregunta, idusuario e id_encuesta son obligatorios" });
+  if (!id_pregunta || !idusuario || !id_encuesta || !id_asignacion) {
+    return res.status(400).json({ error: "Los campos id_pregunta, idusuario, id_encuesta e id_asignacion son obligatorios" });
   }
 
   // Si es una pregunta de opción múltiple, id_opcion es obligatorio
@@ -1367,7 +1377,7 @@ app.post('/nueva-respuesta', (req, res) => {
   }
 
   // Llamar a la función createRespuesta para insertar la respuesta
-  createRespuesta(id_pregunta, id_opcion, texto_respuesta, idusuario, id_encuesta, (err, results) => {
+  createRespuesta(id_pregunta, id_opcion, texto_respuesta, idusuario, id_encuesta, id_asignacion, (err, results) => {
     if (err) {
       console.error("Error al registrar respuesta:", err);
       return res.status(500).json({ error: "Error al registrar respuesta" });
@@ -1375,7 +1385,6 @@ app.post('/nueva-respuesta', (req, res) => {
     res.status(201).json({ message: "Respuesta registrada exitosamente" });
   });
 });
-
 // Endpoint PUT para actualizar una respuesta
 app.put('/actualizar-respuesta/:id_respuesta', (req, res) => {
   const { id_respuesta } = req.params;
@@ -1522,8 +1531,10 @@ app.get('/mis-encuestas/:idusuario', (req, res) => {
       e.nombre_encuesta,  -- Nombre de la encuesta
       u.nombre,           -- Nombre del usuario
       (SELECT COUNT(DISTINCT fecha_creacion) 
-      FROM respuestas 
-      WHERE idusuario = ea.idusuario AND id_encuesta = ea.id_encuesta
+      FROM respuestas r 
+      WHERE r.idusuario = ea.idusuario 
+        AND r.id_encuesta = ea.id_encuesta
+        AND r.id_asignacion = ea.id_asignacion  -- Filtra por id_asignacion
       ) AS completadas    -- Veces que el usuario ha completado la encuesta
     FROM 
       encuestas_asignadas ea
@@ -1549,16 +1560,20 @@ app.get('/mis-encuestas/:idusuario', (req, res) => {
 app.post('/nueva-encuesta-asignada', (req, res) => {
   const { idusuario, id_encuesta, cantidad } = req.body;
 
-  createEncuestaAsignada(idusuario, id_encuesta, cantidad, (err, results) => {
+  createEncuestaAsignada(idusuario, id_encuesta, cantidad, (err, id_asignacion) => {
     if (err) {
       console.error("Error al registrar encuesta asignada:", err);
       res.status(500).json({ error: 'Error al registrar encuesta asignada' });
       return;
     }
-    res.status(201).json({ message: 'Encuesta asignada registrada exitosamente' });
+
+    // Devuelve el id_asignacion en la respuesta
+    res.status(201).json({ 
+      message: 'Encuesta asignada registrada exitosamente', 
+      id_asignacion: id_asignacion 
+    });
   });
 });
-
 
 // Endpoint PUT para actualizar una encuesta asignada
 app.put('/actualizar-encuesta-asignada/:id_asignacion', (req, res) => {
@@ -1582,63 +1597,59 @@ app.put('/actualizar-encuesta-asignada/:id_asignacion', (req, res) => {
 app.put('/verificar-completado/:idusuario/:id_encuesta', (req, res) => {
   const { idusuario, id_encuesta } = req.params;
 
-  // Paso 1: Obtener la cantidad de veces que el usuario ha completado la encuesta
-  db.query(
-    `SELECT COUNT(DISTINCT fecha_creacion) AS veces_completadas
-     FROM respuestas 
-     WHERE idusuario = ? AND id_encuesta = ?`,
-    [idusuario, id_encuesta],
-    (error, results) => {
-      if (error) {
-        console.error('Error al contar las veces completadas:', error);
-        return res.status(500).json({ message: 'Error interno del servidor' });
-      }
+  // Consulta para obtener la cantidad asignada y el número de respuestas únicas por asignación
+  const query = `
+    SELECT 
+      ea.id_asignacion,
+      ea.cantidad AS cantidad_asignada,
+      (SELECT COUNT(DISTINCT r.fecha_creacion) 
+       FROM respuestas r 
+       WHERE r.idusuario = ea.idusuario 
+         AND r.id_encuesta = ea.id_encuesta
+         AND r.id_asignacion = ea.id_asignacion  -- Filtra por id_asignacion
+      ) AS cantidad_respuestas
+    FROM 
+      encuestas_asignadas ea
+    WHERE 
+      ea.idusuario = ? 
+      AND ea.id_encuesta = ?;
+  `;
 
-      const vecesCompletadas = results[0].veces_completadas;
-
-      // Paso 2: Obtener la cantidad de veces que el usuario debe completar la encuesta
-      db.query(
-        `SELECT cantidad 
-         FROM encuestas_asignadas 
-         WHERE idusuario = ? AND id_encuesta = ?`,
-        [idusuario, id_encuesta],
-        (error, results) => {
-          if (error) {
-            console.error('Error al obtener la cantidad permitida:', error);
-            return res.status(500).json({ message: 'Error interno del servidor' });
-          }
-
-          if (results.length === 0) {
-            return res.status(404).json({ message: 'Encuesta no encontrada' });
-          }
-
-          const cantidadPermitida = results[0].cantidad;
-
-          // Paso 3: Verificar si el usuario ha alcanzado la cantidad permitida
-          if (vecesCompletadas >= cantidadPermitida) { // Usar >= para cubrir casos donde el usuario complete más de lo requerido
-            // Paso 4: Marcar la encuesta como completada
-            db.query(
-              `UPDATE encuestas_asignadas 
-               SET estado = 'completado' 
-               WHERE idusuario = ? AND id_encuesta = ?`,
-              [idusuario, id_encuesta],
-              (error) => {
-                if (error) {
-                  console.error('Error al marcar la encuesta como completada:', error);
-                  return res.status(500).json({ message: 'Error interno del servidor' });
-                }
-
-                return res.status(200).json({ message: 'Encuesta marcada como completada' });
-              }
-            );
-          } else {
-            // Si no se ha alcanzado la cantidad permitida, devolver un mensaje de éxito
-            return res.status(200).json({ message: 'Verificación completada' });
-          }
-        }
-      );
+  // Ejecutar la consulta
+  db.query(query, [idusuario, id_encuesta], (err, results) => {
+    if (err) {
+      console.error("Error al verificar el estado de la encuesta:", err);
+      return res.status(500).json({ error: 'Error al verificar el estado de la encuesta' });
     }
-  );
+
+    if (results.length === 0) {
+      return res.status(404).json({ error: 'Encuesta no encontrada para el usuario' });
+    }
+
+    // Iterar sobre cada asignación (por si hay múltiples asignaciones)
+    results.forEach((asignacion) => {
+      const { id_asignacion, cantidad_asignada, cantidad_respuestas } = asignacion;
+
+      // Verificar si la cantidad de respuestas coincide con la cantidad asignada
+      if (cantidad_respuestas >= cantidad_asignada) {
+        // Actualizar el estado a "completado" para esta asignación
+        const updateQuery = `
+          UPDATE encuestas_asignadas
+          SET estado = 'completado'
+          WHERE id_asignacion = ?;
+        `;
+
+        db.query(updateQuery, [id_asignacion], (err, updateResults) => {
+          if (err) {
+            console.error("Error al actualizar el estado de la encuesta:", err);
+            return res.status(500).json({ error: 'Error al actualizar el estado de la encuesta' });
+          }
+        });
+      }
+    });
+
+    return res.status(200).json({ message: 'Verificación completada' });
+  });
 });
 
 
