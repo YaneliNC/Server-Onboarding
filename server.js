@@ -3,17 +3,81 @@ import mysql from 'mysql2';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import crypto from 'crypto';  
-// import multer from 'multer';
-// import path from 'path'; 
-// import { fileURLToPath } from 'url';
-// import { dirname } from 'path';
-// import fs from 'fs';
+import multer from 'multer';
+import path from 'path'; 
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+import fs from 'fs';
 
 dotenv.config();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 const app = express();
 app.use(cors());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-app.use(express.json());
+// Configuración de multer para manejar la subida de archivos
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, 'uploads/');
+  },
+  filename: (req, file, cb) => {
+    cb(null, `${file.fieldname}-${Date.now()}${path.extname(file.originalname)}`);
+  }
+});
+
+const upload = multer({ storage });
+
+// Endpoint para subir la imagen
+app.post('/upload', upload.fields([
+  { name: 'foto', maxCount: 1 },
+  { name: 'foto2', maxCount: 1 },
+  { name: 'foto3', maxCount: 1 }
+]), (req, res) => {
+  if (!req.files) {
+    return res.status(400).json({ message: 'No se subieron archivos' });
+  }
+
+  // Obtener los archivos subidos
+  const filepaths = {
+    foto: req.files['foto'] ? `uploads/${req.files['foto'][0].filename}` : '',
+    foto2: req.files['foto2'] ? `uploads/${req.files['foto2'][0].filename}` : '',
+    foto3: req.files['foto3'] ? `uploads/${req.files['foto3'][0].filename}` : ''
+  };
+
+  // Filtrar solo los campos con archivos subidos
+  const filteredFilepaths = Object.fromEntries(
+    Object.entries(filepaths).filter(([key, value]) => value !== '')
+  );
+
+  // Responder con las rutas de los archivos subidos
+  res.status(200).json(filteredFilepaths);
+});
+
+// Función para convertir base64 a archivo
+const base64ToFile = (base64Str, fileName) => {
+  const matches = base64Str.match(/^data:image\/([A-Za-z-+\/]+);base64,(.+)$/);
+  const response = {};
+
+  if (!matches || matches.length !== 3) {
+    return new Error('Formato de base64 inválido');
+  }
+
+  response.type = matches[1];
+  response.data = Buffer.from(matches[2], 'base64');
+
+  // Generar un ID aleatorio para el archivo
+  const uniqueId = crypto.randomBytes(16).toString('hex');
+  const newFileName = `${fileName}-${uniqueId}${path.extname(fileName)}`;
+  const relativePath = path.join('uploads', newFileName); // Ruta relativa
+  const absolutePath = path.join(__dirname, relativePath); // Ruta absoluta
+
+  fs.writeFileSync(absolutePath, response.data, { encoding: 'base64' });
+
+  return relativePath; // Retorna la ruta relativa
+};
 
 // Conexión a la base de datos MySQL
 const db = mysql.createConnection({
