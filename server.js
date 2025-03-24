@@ -31,52 +31,56 @@ const storage = multer.diskStorage({
 const upload = multer({ storage });
 
 // Endpoint para subir la imagen
-app.post('/upload', upload.fields([
-  { name: 'foto', maxCount: 1 },
-  { name: 'foto2', maxCount: 1 },
-  { name: 'foto3', maxCount: 1 }
-]), (req, res) => {
-  if (!req.files) {
-    return res.status(400).json({ message: 'No se subieron archivos' });
-  }
+app.post('/upload', (req, res) => {
+  upload(req, res, (err) => {
+    if (err) {
+      console.error('Error al subir archivos:', err);
+      return res.status(500).json({ message: 'Error al subir archivos', error: err.message });
+    }
 
-  // Obtener los archivos subidos
-  const filepaths = {
-    foto: req.files['foto'] ? `uploads/${req.files['foto'][0].filename}` : '',
-    foto2: req.files['foto2'] ? `uploads/${req.files['foto2'][0].filename}` : '',
-    foto3: req.files['foto3'] ? `uploads/${req.files['foto3'][0].filename}` : ''
-  };
+    if (!req.files) {
+      return res.status(400).json({ message: 'No se subieron archivos' });
+    }
 
-  // Filtrar solo los campos con archivos subidos
-  const filteredFilepaths = Object.fromEntries(
-    Object.entries(filepaths).filter(([key, value]) => value !== '')
-  );
+    const filepaths = {
+      foto: req.files['foto'] ? `uploads/${req.files['foto'][0].filename}` : '',
+      foto2: req.files['foto2'] ? `uploads/${req.files['foto2'][0].filename}` : '',
+      foto3: req.files['foto3'] ? `uploads/${req.files['foto3'][0].filename}` : ''
+    };
 
-  // Responder con las rutas de los archivos subidos
-  res.status(200).json(filteredFilepaths);
+    const filteredFilepaths = Object.fromEntries(
+      Object.entries(filepaths).filter(([key, value]) => value !== '')
+    );
+
+    res.status(200).json(filteredFilepaths);
+  });
 });
+
+
 
 // Función para convertir base64 a archivo
 const base64ToFile = (base64Str, fileName) => {
-  const matches = base64Str.match(/^data:image\/([A-Za-z-+\/]+);base64,(.+)$/);
-  const response = {};
+  try {
+    const matches = base64Str.match(/^data:image\/([A-Za-z-+\/]+);base64,(.+)$/);
+    if (!matches || matches.length !== 3) {
+      throw new Error('Formato de base64 inválido');
+    }
 
-  if (!matches || matches.length !== 3) {
-    return new Error('Formato de base64 inválido');
+    const fileType = matches[1];
+    const fileData = Buffer.from(matches[2], 'base64');
+
+    const uniqueId = crypto.randomBytes(16).toString('hex');
+    const newFileName = `${fileName}-${uniqueId}${path.extname(fileName)}`;
+    const relativePath = path.join('uploads', newFileName);
+    const absolutePath = path.join(__dirname, relativePath);
+
+    fs.writeFileSync(absolutePath, fileData, { encoding: 'base64' });
+
+    return relativePath;
+  } catch (error) {
+    console.error('Error al convertir base64 a archivo:', error);
+    throw error;
   }
-
-  response.type = matches[1];
-  response.data = Buffer.from(matches[2], 'base64');
-
-  // Generar un ID aleatorio para el archivo
-  const uniqueId = crypto.randomBytes(16).toString('hex');
-  const newFileName = `${fileName}-${uniqueId}${path.extname(fileName)}`;
-  const relativePath = path.join('uploads', newFileName); // Ruta relativa
-  const absolutePath = path.join(__dirname, relativePath); // Ruta absoluta
-
-  fs.writeFileSync(absolutePath, response.data, { encoding: 'base64' });
-
-  return relativePath; // Retorna la ruta relativa
 };
 
 // Conexión a la base de datos MySQL
@@ -192,6 +196,37 @@ const updateUser = async (idusuario, nombre, correo, contraseña, puesto, numero
       callback(err, null);
   }
 };
+
+
+const updateUsuario = async (idusuario, nombre, correo, contraseña, puesto, numero_empleado, planta, turno, idrol, foto, callback) => {
+  try {
+    let query;
+    let params;
+
+    if (foto) {
+      if (contraseña) {
+        query = 'UPDATE users SET nombre = ?, correo = ?, contraseña = ?, puesto = ?, numero_empleado = ?, planta = ?, turno = ?, idrol = ?, foto = ? WHERE idusuario = ?';
+        params = [nombre, correo, contraseña, puesto, numero_empleado, planta, turno, idrol, foto, idusuario];
+      } else {
+        query = 'UPDATE users SET nombre = ?, correo = ?, puesto = ?, numero_empleado = ?, planta = ?, turno = ?, idrol = ?, foto = ? WHERE idusuario = ?';
+        params = [nombre, correo, puesto, numero_empleado, planta, turno, idrol, foto, idusuario];
+      }
+    } else {
+      if (contraseña) {
+        query = 'UPDATE users SET nombre = ?, correo = ?, contraseña = ?, puesto = ?, numero_empleado = ?, planta = ?, turno = ?, idrol = ? WHERE idusuario = ?';
+        params = [nombre, correo, contraseña, puesto, numero_empleado, planta, turno, idrol, idusuario];
+      } else {
+        query = 'UPDATE users SET nombre = ?, correo = ?, puesto = ?, numero_empleado = ?, planta = ?, turno = ?, idrol = ? WHERE idusuario = ?';
+        params = [nombre, correo, puesto, numero_empleado, planta, turno, idrol, idusuario];
+      }
+    }
+
+    db.query(query, params, callback);
+  } catch (err) {
+    callback(err, null);
+  }
+};
+
 
 const deleteUser = (idusuario, callback) => {
   const query = 'DELETE FROM users WHERE idusuario = ?';
@@ -796,7 +831,7 @@ app.post('/nuevo-usuario', async (req, res) => {
 app.post('/nuevo-admin', async (req, res) => {
   const { nombre, correo, contraseña, puesto, numero_empleado, planta, turno } = req.body;
   const idrol = 1; // ID de rol para administrador
-  console.log("Datos recibidos:", req.body); // Log para verificar los datos
+  
 
   try {
     createAdmin(nombre, correo, contraseña, puesto, numero_empleado, planta, turno, idrol, (err, results) => {
@@ -831,19 +866,24 @@ app.put('/actualizar-usuario/:idusuario', async (req, res) => {
 });
 
 
-app.put('/actualizar-perfil/:idusuario', async (req, res) => {
+app.put('/actualizar-perfil/:idusuario', upload.single('foto'), async (req, res) => {
   const { idusuario } = req.params;
   const { nombre, correo, contraseña, puesto, numero_empleado, planta, turno, idrol } = req.body;
-  updateUser(idusuario, nombre, correo, contraseña, puesto, numero_empleado, planta, turno, idrol, (err, results) => {
-      if (err) {
-          res.status(500).send(err);
-          return;
-      }
-      if (results.affectedRows === 0) {
-          res.status(404).json({ message: 'Usuario no encontrado' });
-          return;
-      }
-      res.status(200).json({ message: 'Usuario actualizado exitosamente' });
+
+  // Obtener solo el nombre del archivo sin la carpeta "uploads"
+  const foto = req.file ? path.basename(req.file.path) : null;
+
+  console.log("Datos recibidos:", { idusuario, nombre, correo, contraseña, puesto, numero_empleado, planta, turno, idrol, foto });
+
+  updateUsuario(idusuario, nombre, correo, contraseña, puesto, numero_empleado, planta, turno, idrol, foto, (err, results) => {
+    if (err) {
+      console.error("Error en la consulta SQL:", err);
+      return res.status(500).json({ message: 'Error en la base de datos', error: err.message });
+    }
+    if (results.affectedRows === 0) {
+      return res.status(404).json({ message: 'Usuario no encontrado' });
+    }
+    res.status(200).json({ message: 'Usuario actualizado exitosamente' });
   });
 });
 
