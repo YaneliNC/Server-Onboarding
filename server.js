@@ -1916,7 +1916,6 @@ app.post("/nueva-respuesta", (req, res) => {
   );
 });
 
-
 // Endpoint PUT para actualizar una respuesta
 app.put("/actualizar-respuesta/:id_respuesta", (req, res) => {
   const { id_respuesta } = req.params;
@@ -1987,7 +1986,7 @@ app.get("/encuestas-asignadas", (req, res) => {
       u.nombre,
       e.nombre_encuesta AS encuesta,
       ea.cantidad,
-      ea.fecha_creacion,
+      DATE(ea.fecha_creacion) AS fecha_creacion, -- Formatear solo la fecha en la consulta SQL
       ea.estado
     FROM 
       encuestas_asignadas ea
@@ -2034,10 +2033,11 @@ app.get("/encuestas-asignadas", (req, res) => {
   });
 });
 
-// Endpoint GET para obtener una encuesta asignada por ID
+// // Endpoint GET para obtener una encuesta asignada por ID
 app.get("/encuesta-asignada/:id_asignacion", (req, res) => {
   const { id_asignacion } = req.params;
   const query = "SELECT * FROM encuestas_asignadas WHERE id_asignacion = ?";
+
   db.query(query, [id_asignacion], (err, results) => {
     if (err) {
       console.error("Error al obtener encuesta asignada:", err);
@@ -2048,54 +2048,18 @@ app.get("/encuesta-asignada/:id_asignacion", (req, res) => {
       res.status(404).json({ message: "Encuesta asignada no encontrada" });
       return;
     }
-    res.status(200).json(results[0]);
+
+    // Formatear la fecha (manteniendo solo 'YYYY-MM-DD')
+    const encuesta = results[0];
+    if (encuesta.fecha_creacion) {
+      encuesta.fecha_creacion = new Date(encuesta.fecha_creacion)
+        .toISOString()
+        .split("T")[0];
+    }
+
+    res.status(200).json(encuesta);
   });
 });
-
-// app.get("/mis-encuestas/:idusuario", (req, res) => {
-//   const { idusuario } = req.params;
-
-//   const query = `
-//    SELECT 
-//   ea.id_asignacion, 
-//   ea.idusuario, 
-//   ea.id_encuesta, 
-//   ea.cantidad, 
-//   ea.fecha_creacion, 
-//   CASE 
-//     WHEN (
-//       SELECT COUNT(*) 
-//       FROM respuestas r 
-//       WHERE r.id_asignacion = ea.id_asignacion
-//       AND r.idusuario = ea.idusuario
-//     ) >= (ea.cantidad * (SELECT COUNT(*) FROM preguntas p WHERE p.id_encuesta = ea.id_encuesta))
-//     THEN 'completado' 
-//     ELSE 'pendiente' 
-//   END AS estado,
-//   e.nombre_encuesta, 
-//   u.nombre, 
-//   FLOOR(
-//     (SELECT COUNT(DISTINCT CONCAT(r.id_pregunta, '-', r.fecha_creacion)) 
-//      FROM respuestas r 
-//      WHERE r.id_asignacion = ea.id_asignacion
-//      AND r.idusuario = ea.idusuario) / 
-//     (SELECT COUNT(*) FROM preguntas p WHERE p.id_encuesta = ea.id_encuesta)
-//   ) AS completadas
-// FROM encuestas_asignadas ea
-// JOIN encuestas e ON ea.id_encuesta = e.id_encuesta
-// JOIN users u ON ea.idusuario = u.idusuario
-// WHERE ea.idusuario = ?;
-//   `;
-
-//   db.query(query, [idusuario], (err, results) => {
-//     if (err) {
-//       console.error("Error al obtener encuestas asignadas:", err);
-//       res.status(500).json({ error: "Error al obtener encuestas asignadas" });
-//       return;
-//     }
-//     res.status(200).json(results);
-//   });
-// });
 
 app.get("/mis-encuestas/:idusuario", (req, res) => {
   const { idusuario } = req.params;
@@ -2144,14 +2108,14 @@ app.get("/mis-encuestas/:idusuario", (req, res) => {
       res.status(500).json({ error: "Error al obtener encuestas asignadas" });
       return;
     }
-    
+
     // Procesamos los resultados para usar el estado calculado
-    const processedResults = results.map(item => ({
+    const processedResults = results.map((item) => ({
       ...item,
       estado: item.estado_calculado,
-      completadas: item.repeticiones_completadas
+      completadas: item.repeticiones_completadas,
     }));
-    
+
     res.status(200).json(processedResults);
   });
 });
@@ -2180,31 +2144,32 @@ app.post("/nueva-encuesta-asignada", (req, res) => {
   );
 });
 
-// Endpoint PUT para actualizar una encuesta asignada
 app.put("/actualizar-encuesta-asignada/:id_asignacion", (req, res) => {
   const { id_asignacion } = req.params;
-  const { idusuario, id_encuesta, cantidad } = req.body;
+  const { idusuario, id_encuesta, cantidad, estado, fecha_creacion } = req.body;
 
-  updateEncuestaAsignada(
-    id_asignacion,
-    idusuario,
-    id_encuesta,
-    cantidad,
+  // Formatear la fecha (manteniendo solo 'YYYY-MM-DD')
+  const fechaFormateada = new Date(fecha_creacion).toISOString().split("T")[0];
+
+  const query = `
+    UPDATE encuestas_asignadas 
+    SET idusuario = ?, id_encuesta = ?, cantidad = ?, estado = ?, fecha_creacion = ?
+    WHERE id_asignacion = ?`;
+
+  db.query(
+    query,
+    [idusuario, id_encuesta, cantidad, estado, fechaFormateada, id_asignacion],
     (err, results) => {
       if (err) {
-        console.error("Error al actualizar encuesta asignada:", err);
-        res
+        console.error("Error al actualizar asignación:", err);
+        return res
           .status(500)
-          .json({ error: "Error al actualizar encuesta asignada" });
-        return;
+          .json({ error: "Error al actualizar asignación" });
       }
       if (results.affectedRows === 0) {
-        res.status(404).json({ message: "Encuesta asignada no encontrada" });
-        return;
+        return res.status(404).json({ message: "Asignación no encontrada" });
       }
-      res
-        .status(200)
-        .json({ message: "Encuesta asignada actualizada exitosamente" });
+      res.status(200).json({ message: "Asignación actualizada correctamente" });
     }
   );
 });
@@ -2274,6 +2239,89 @@ app.put("/verificar-completado/:idusuario/:id_encuesta", (req, res) => {
   });
 });
 
+app.get("/respuestas-asignacion/:id_asignacion", (req, res) => {
+  const { id_asignacion } = req.params;
+
+  const query = `
+    SELECT 
+      r.id_respuesta,
+      r.id_asignacion,
+      r.id_encuesta,
+      e.nombre_encuesta,
+      p.id_pregunta,
+      p.texto_pregunta,
+      p.tipo_pregunta,
+      o.id_opcion,
+      o.texto_opcion,
+      r.texto_respuesta,
+      DATE_FORMAT(r.fecha_creacion, '%Y-%m-%d %H:%i:%s') as fecha_exacta,
+      u.nombre AS usuario
+    FROM 
+      respuestas r
+    LEFT JOIN 
+      encuestas e ON r.id_encuesta = e.id_encuesta
+    LEFT JOIN 
+      preguntas p ON r.id_pregunta = p.id_pregunta
+    LEFT JOIN 
+      opciones_respuesta o ON r.id_opcion = o.id_opcion
+    LEFT JOIN 
+      users u ON r.idusuario = u.idusuario
+    WHERE 
+      r.id_asignacion = ?
+    ORDER BY
+      r.fecha_creacion, r.id_pregunta
+  `;
+
+  db.query(query, [id_asignacion], (err, results) => {
+    if (err) {
+      console.error("Error al obtener respuestas:", err);
+      return res.status(500).json({ error: "Error al obtener respuestas" });
+    }
+
+    if (results.length === 0) {
+      return res
+        .status(404)
+        .json({ message: "No se encontraron respuestas para esta asignación" });
+    }
+
+    // Agrupar por fecha exacta (formateada como string para evitar problemas de milisegundos)
+    const respuestasAgrupadas = results.reduce((grupos, respuesta) => {
+      const fechaKey = respuesta.fecha_exacta;
+
+      if (!grupos[fechaKey]) {
+        grupos[fechaKey] = {
+          id_asignacion: respuesta.id_asignacion,
+          id_encuesta: respuesta.id_encuesta,
+          nombre_encuesta: respuesta.nombre_encuesta,
+          usuario: respuesta.usuario,
+          fecha_creacion: respuesta.fecha_exacta,
+          completada: true,
+          respuestas: [],
+        };
+      }
+
+      grupos[fechaKey].respuestas.push({
+        id_respuesta: respuesta.id_respuesta,
+        id_pregunta: respuesta.id_pregunta,
+        texto_pregunta: respuesta.texto_pregunta,
+        tipo_pregunta: respuesta.tipo_pregunta,
+        id_opcion: respuesta.id_opcion,
+        texto_opcion: respuesta.texto_opcion,
+        texto_respuesta: respuesta.texto_respuesta,
+      });
+
+      return grupos;
+    }, {});
+
+    // Convertir a array y ordenar por fecha (más reciente primero)
+    const resultadoFinal = Object.values(respuestasAgrupadas).sort((a, b) => {
+      return new Date(b.fecha_creacion) - new Date(a.fecha_creacion);
+    });
+
+    res.status(200).json(resultadoFinal);
+  });
+});
+
 // Endpoint DELETE para eliminar una encuesta asignada
 app.delete("/eliminar-encuesta-asignada/:id_asignacion", (req, res) => {
   const { id_asignacion } = req.params;
@@ -2294,46 +2342,46 @@ app.delete("/eliminar-encuesta-asignada/:id_asignacion", (req, res) => {
   });
 });
 
-
-
 //! DASHBOARD
 
 // Endpoint GET para obtener el total de usuarios
-app.get('/api/total-usuarios', (req, res) => {
-  const query = 'SELECT COUNT(*) AS total_usuarios FROM users';
+app.get("/api/total-usuarios", (req, res) => {
+  const query = "SELECT COUNT(*) AS total_usuarios FROM users";
 
   db.query(query, (err, result) => {
-      if (err) {
-          console.error('Error al ejecutar la consulta:', err);
-          res.status(500).json({ error: 'Error interno del servidor' });
-          return;
-      }
+    if (err) {
+      console.error("Error al ejecutar la consulta:", err);
+      res.status(500).json({ error: "Error interno del servidor" });
+      return;
+    }
 
-      // Enviar el total de usuarios como respuesta JSON
-      res.json({ total_usuarios: result[0].total_usuarios });
+    // Enviar el total de usuarios como respuesta JSON
+    res.json({ total_usuarios: result[0].total_usuarios });
   });
 });
 
 // Endpoint GET para obtener el total de encuestas completadas
-app.get('/api/total-encuestas-completadas', (req, res) => {
+app.get("/api/total-encuestas-completadas", (req, res) => {
   const query = `SELECT COUNT(*) AS total_encuestas_completadas
                  FROM encuestas_asignadas
                  WHERE estado = 'completado';`;
 
   db.query(query, (err, result) => {
-      if (err) {
-          console.error('Error al ejecutar la consulta:', err);
-          res.status(500).json({ error: 'Error interno del servidor' });
-          return;
-      }
+    if (err) {
+      console.error("Error al ejecutar la consulta:", err);
+      res.status(500).json({ error: "Error interno del servidor" });
+      return;
+    }
 
-      // Enviar el total de encuestas completadas como respuesta JSON
-      res.json({ total_encuestas_completadas: result[0].total_encuestas_completadas });
+    // Enviar el total de encuestas completadas como respuesta JSON
+    res.json({
+      total_encuestas_completadas: result[0].total_encuestas_completadas,
+    });
   });
 });
 
 // Endpoint GET para obtener el total de usuarios admin
-app.get('/api/total-admins', (req, res) => {
+app.get("/api/total-admins", (req, res) => {
   const query = `
       SELECT COUNT(*) AS cantidad_administradores
       FROM users u
@@ -2342,24 +2390,28 @@ app.get('/api/total-admins', (req, res) => {
   `;
 
   db.query(query, (err, result) => {
-      if (err) {
-          console.error('Error al ejecutar la consulta:', err);
-          res.status(500).json({ error: 'Error interno del servidor' });
-          return;
-      }
+    if (err) {
+      console.error("Error al ejecutar la consulta:", err);
+      res.status(500).json({ error: "Error interno del servidor" });
+      return;
+    }
 
-      // Enviar el total de usuarios admin como respuesta JSON con clave cantidad_administradores
-      res.json({ cantidad_administradores: result[0].cantidad_administradores });
+    // Enviar el total de usuarios admin como respuesta JSON con clave cantidad_administradores
+    res.json({ cantidad_administradores: result[0].cantidad_administradores });
   });
 });
 
-app.get('/api/encuestas', (req, res) => {
+app.get("/api/encuestas", (req, res) => {
   // Parámetros de consulta
   const { year, month } = req.query;
 
   // Validación de parámetros
   if (!year || !month) {
-      return res.status(400).json({ error: 'Por favor proporciona los parámetros "year" y "month".' });
+    return res
+      .status(400)
+      .json({
+        error: 'Por favor proporciona los parámetros "year" y "month".',
+      });
   }
 
   const query = `
@@ -2372,22 +2424,25 @@ app.get('/api/encuestas', (req, res) => {
       ORDER BY fecha ASC;
   `;
 
-  const formattedDate = `${year}-${month.padStart(2, '0')}`; // Formato 'YYYY-MM'
+  const formattedDate = `${year}-${month.padStart(2, "0")}`; // Formato 'YYYY-MM'
 
   db.query(query, [formattedDate], (err, results) => {
-      if (err) {
-          console.error('Error al ejecutar la consulta:', err);
-          res.status(500).json({ error: 'Error al obtener los datos de encuestas.' });
-          return;
-      }
+    if (err) {
+      console.error("Error al ejecutar la consulta:", err);
+      res
+        .status(500)
+        .json({ error: "Error al obtener los datos de encuestas." });
+      return;
+    }
 
-      // Devuelve los resultados en formato JSON
-      res.json(results);
+    // Devuelve los resultados en formato JSON
+    res.json(results);
   });
 });
 
 app.get("/api/respuestas-dinamicas", (req, res) => {
-  const { id_encuesta, id_usuario, fecha, id_pregunta_min, id_pregunta_max } = req.query;
+  const { id_encuesta, id_usuario, fecha, id_pregunta_min, id_pregunta_max } =
+    req.query;
 
   // Crear condiciones opcionales para los parámetros
   const condiciones = [];
@@ -2410,7 +2465,9 @@ app.get("/api/respuestas-dinamicas", (req, res) => {
     valores.push(id_pregunta_min, id_pregunta_max);
   }
 
-  const whereClause = condiciones.length ? `WHERE ${condiciones.join(" AND ")}` : "";
+  const whereClause = condiciones.length
+    ? `WHERE ${condiciones.join(" AND ")}`
+    : "";
 
   const query = `
       SELECT 
@@ -2469,7 +2526,7 @@ app.get("/usuarios-rol", (req, res) => {
 });
 
 // Endpoint para obtener encuestas asignadas
-app.get('/fecha-asignada', (req, res) => {
+app.get("/fecha-asignada", (req, res) => {
   const query = `
     SELECT 
         ea.id_asignacion,
@@ -2487,8 +2544,8 @@ app.get('/fecha-asignada', (req, res) => {
 
   db.query(query, (err, results) => {
     if (err) {
-      console.error('Error al ejecutar la consulta:', err);
-      return res.status(500).send('Error al ejecutar la consulta.');
+      console.error("Error al ejecutar la consulta:", err);
+      return res.status(500).send("Error al ejecutar la consulta.");
     }
     res.json(results);
   });
@@ -2518,20 +2575,81 @@ app.get("/encuestadores/asignaciones", (req, res) => {
   });
 });
 
+app.get("/preguntas-respuestas-texto", (req, res) => {
+  const query = `
+    SELECT 
+    p.id_pregunta,
+    p.texto_pregunta,
+    r.texto_respuesta,
+    e.nombre_encuesta,
+    ea.id_asignacion,
+    ea.idusuario AS usuario_asignado,
+    u.nombre,  -- Recupera el nombre del usuario
+    r.fecha_creacion
+FROM 
+    respuestas r
+JOIN 
+    preguntas p ON r.id_pregunta = p.id_pregunta
+JOIN 
+    encuestas e ON p.id_encuesta = e.id_encuesta
+JOIN 
+    encuestas_asignadas ea ON r.id_asignacion = ea.id_asignacion
+JOIN 
+    users u ON ea.idusuario = u.idusuario  -- Se une con la tabla users
+WHERE 
+    r.texto_respuesta IS NOT NULL
+    AND r.texto_respuesta != ''
+ORDER BY 
+    r.fecha_creacion DESC;
 
+  `;
 
+  db.query(query, (err, results) => {
+    if (err) {
+      console.error("Error al obtener preguntas con respuestas de texto:", err);
+      res
+        .status(500)
+        .json({ error: "Error al obtener preguntas con respuestas de texto" });
+      return;
+    }
 
+    if (results.length === 0) {
+      res
+        .status(404)
+        .json({
+          message: "No se encontraron preguntas con respuestas de texto",
+        });
+      return;
+    }
 
+    res.status(200).json(results);
+  });
+});
 
+app.get("/preguntas-abiertas", (req, res) => {
+  const query = `
+    SELECT p.* 
+    FROM preguntas p
+    LEFT JOIN opciones_respuesta o ON p.id_pregunta = o.id_pregunta
+    WHERE o.id_opcion IS NULL
+    AND p.tipo_pregunta IN ('parrafo', 'texto_corto') -- Aquí defines los tipos de preguntas abiertas
+  `;
 
+  db.query(query, (err, results) => {
+    if (err) {
+      console.error("Error al obtener preguntas abiertas:", err);
+      res.status(500).json({ error: "Error al obtener preguntas abiertas" });
+      return;
+    }
 
+    if (results.length === 0) {
+      res.status(404).json({ message: "No se encontraron preguntas abiertas" });
+      return;
+    }
 
-
-
-
-
-
-
+    res.status(200).json(results);
+  });
+});
 
 //?NO COPIES ESTO, LO DEJAMOS PARA EL FINAL
 // Inicia el servidor
