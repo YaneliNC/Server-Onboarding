@@ -2655,7 +2655,7 @@ app.get("/preguntas-abiertas", (req, res) => {
 app.get('/total-cantidades', (req, res) => {
   const consultaSQL = `
       SELECT SUM(cantidad) AS total_cantidad
-      FROM tu_tabla
+      FROM encuestas_asignadas
       WHERE estado IN ('pendiente', 'completado');
   `;
 
