@@ -2651,6 +2651,23 @@ app.get("/preguntas-abiertas", (req, res) => {
   });
 });
 
+// Endpoint para obtener el total de cantidades según el estado
+app.get('/total-cantidades', (req, res) => {
+  const consultaSQL = `
+      SELECT SUM(cantidad) AS total_cantidad
+      FROM tu_tabla
+      WHERE estado IN ('pendiente', 'completado');
+  `;
+
+  db.query(consultaSQL, (err, resultado) => {
+      if (err) {
+          res.status(500).send('Error en la consulta');
+          return;
+      }
+      res.json({ total_cantidad: resultado[0].total_cantidad });
+  });
+});
+
 //?NO COPIES ESTO, LO DEJAMOS PARA EL FINAL
 // Inicia el servidor
 const port = process.env.PORT || 5000;
