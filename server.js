@@ -12,7 +12,12 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const app = express();
-app.use(cors());
+app.use(cors({
+  origin: '*',  // O especifica los dominios permitidos: ['https://tu-frontend.com']
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+app.options('*', cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
@@ -71,36 +76,54 @@ const base64ToFile = (base64Str, fileName) => {
   return relativePath;
 };
 
-const db = mysql.createConnection({
+const pool = mysql.createPool({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
   port: process.env.DB_PORT,
-  connectTimeout: 10000 // Añade un tiempo de espera para la conexión
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0
 });
 
-function handleDisconnect() {
-  db.connect(err => {
-    if (err) {
-      console.error('Error al conectar con la BD:', err);
-      setTimeout(handleDisconnect, 2000);
-    } else {
-      console.log('Conectado a la base de datos');
-    }
-  });
-
-  db.on('error', err => {
-    console.error('Error en la conexión con la BD:', err);
-    if (err.code === 'PROTOCOL_CONNECTION_LOST') {
-      handleDisconnect();
-    } else {
-      throw err;
-    }
+// Función para ejecutar queries de forma más eficiente
+function executeQuery(query, params = []) {
+  return new Promise((resolve, reject) => {
+    pool.getConnection((err, connection) => {
+      if (err) {
+        console.error("Error al obtener conexión:", err);
+        return reject(err);
+      }
+      
+      connection.query(query, params, (error, results) => {
+        connection.release(); // Siempre liberar la conexión
+        
+        if (error) {
+          console.error("Error al ejecutar query:", error);
+          return reject(error);
+        }
+        
+        resolve(results);
+      });
+    });
   });
 }
 
-handleDisconnect();
+// Función para verificar la conexión a la base de datos
+async function testDbConnection() {
+  try {
+    const result = await executeQuery("SELECT 1");
+    console.log("Conexión a la base de datos establecida correctamente");
+    return true;
+  } catch (err) {
+    console.error("Error al conectar con la base de datos:", err);
+    return false;
+  }
+}
+
+// Verificamos la conexión al inicio
+testDbConnection();
 
 
 
