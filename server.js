@@ -2,7 +2,6 @@ import express from "express";
 import mysql from "mysql2";
 import cors from "cors";
 import dotenv from "dotenv";
-import crypto from "crypto";
 import multer from "multer";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -24,10 +23,7 @@ const storage = multer.diskStorage({
     cb(null, "uploads/");
   },
   filename: (req, file, cb) => {
-    cb(
-      null,
-      `${file.fieldname}-${Date.now()}${path.extname(file.originalname)}`
-    );
+    cb(null, `${file.fieldname}-${Date.now()}${path.extname(file.originalname)}`);
   },
 });
 
@@ -38,9 +34,7 @@ app.post("/upload", (req, res) => {
   upload(req, res, (err) => {
     if (err) {
       console.error("Error al subir archivos:", err);
-      return res
-        .status(500)
-        .json({ message: "Error al subir archivos", error: err.message });
+      return res.status(500).json({ message: "Error al subir archivos", error: err.message });
     }
 
     if (!req.files) {
@@ -49,12 +43,8 @@ app.post("/upload", (req, res) => {
 
     const filepaths = {
       foto: req.files["foto"] ? `uploads/${req.files["foto"][0].filename}` : "",
-      foto2: req.files["foto2"]
-        ? `uploads/${req.files["foto2"][0].filename}`
-        : "",
-      foto3: req.files["foto3"]
-        ? `uploads/${req.files["foto3"][0].filename}`
-        : "",
+      foto2: req.files["foto2"] ? `uploads/${req.files["foto2"][0].filename}` : "",
+      foto3: req.files["foto3"] ? `uploads/${req.files["foto3"][0].filename}` : "",
     };
 
     const filteredFilepaths = Object.fromEntries(
@@ -68,9 +58,7 @@ app.post("/upload", (req, res) => {
 // Función para convertir base64 a archivo
 const base64ToFile = (base64Str, fileName) => {
   try {
-    const matches = base64Str.match(
-      /^data:image\/([A-Za-z-+\/]+);base64,(.+)$/
-    );
+    const matches = base64Str.match(/^data:image\/([A-Za-z-+\/]+);base64,(.+)$/);
     if (!matches || matches.length !== 3) {
       throw new Error("Formato de base64 inválido");
     }
@@ -92,17 +80,17 @@ const base64ToFile = (base64Str, fileName) => {
   }
 };
 
-// Conexión a la base de datos MySQL
-const db = mysql.createConnection({
+// Conexión a la base de datos MySQL (usando Pool en lugar de createConnection)
+const db = mysql.createPool({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
   port: process.env.DB_PORT,
-  connectTimeout: 10000
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0
 });
-
-
 
 
 
