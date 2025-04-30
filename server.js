@@ -104,27 +104,17 @@ const db = mysql.createConnection({
 
 
 
-function handleDisconnect() {
-  db.connect(err => {
-    if (err) {
-      console.error('Error al conectar con la BD:', err);
-      setTimeout(handleDisconnect, 2000);
-    } else {
-      console.log('Conectado a la base de datos');
-    }
-  });
-
-  db.on('error', err => {
-    console.error('Error en la conexión con la BD:', err);
-    if (err.code === 'PROTOCOL_CONNECTION_LOST') {
-      handleDisconnect();
-    } else {
-      throw err;
-    }
-  });
-}
-
-handleDisconnect();
+db.connect((err) => {
+  if (err) {
+    console.error(
+      "Error al conectar con la base de datos:",
+      err.code,
+      err.message
+    );
+    return;
+  }
+  console.log("Conexión exitosa a la base de datos");
+});
 
 //! MODELOS
 
