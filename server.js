@@ -102,7 +102,7 @@ const db = mysql.createPool({
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0
-}).promise(); // para usar async/await
+});
 
 // Prueba de conexión (opcional)
 db.query('SELECT 1')
