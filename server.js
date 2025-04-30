@@ -93,22 +93,28 @@ const base64ToFile = (base64Str, fileName) => {
 };
 
 // Conexión a la base de datos MySQL
-const db = mysql.createPool({
+const db = mysql.createConnection({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
   port: process.env.DB_PORT,
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0
+  connectTimeout: 10000
 });
 
-// Prueba de conexión (opcional)
-db.query('SELECT 1')
-  .then(() => console.log('Conectado a la base de datos con Pool'))
-  .catch(err => console.error('Error de conexión:', err));
 
+
+db.connect((err) => {
+  if (err) {
+    console.error(
+      "Error al conectar con la base de datos:",
+      err.code,
+      err.message
+    );
+    return;
+  }
+  console.log("Conexión exitosa a la base de datos");
+});
 
 //! MODELOS
 
