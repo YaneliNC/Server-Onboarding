@@ -7,24 +7,40 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { dirname } from "path";
 import fs from "fs";
+import crypto from "crypto";
 
 dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const app = express();
+
+// Configuración mejorada de CORS
 app.use(cors({
   origin: '*',  // O especifica los dominios permitidos: ['https://tu-frontend.com']
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
+
+// Middleware para preflight CORS requests
 app.options('*', cors());
+
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
+// Configuración original de multer
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, 'uploads/');
+    // Intentamos crear el directorio si no existe
+    try {
+      if (!fs.existsSync('uploads')) {
+        fs.mkdirSync('uploads', { recursive: true });
+      }
+      cb(null, 'uploads/');
+    } catch (error) {
+      console.error("Error al crear directorio:", error);
+      cb(error);
+    }
   },
   filename: (req, file, cb) => {
     cb(null, `${file.fieldname}-${Date.now()}${path.extname(file.originalname)}`);
@@ -33,28 +49,38 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
+// Conservamos exactamente tu endpoint de upload original
 app.post('/upload', upload.fields([
   { name: 'foto', maxCount: 1 },
   { name: 'foto2', maxCount: 1 },
   { name: 'foto3', maxCount: 1 }
 ]), (req, res) => {
-  if (!req.files) {
-    return res.status(400).json({ message: 'No se subieron archivos' });
+  try {
+    console.log("Procesando upload:", req.files);
+    
+    if (!req.files) {
+      return res.status(400).json({ message: 'No se subieron archivos' });
+    }
+
+    const filepaths = {
+      foto: req.files['foto'] ? `uploads/${req.files['foto'][0].filename}` : '',
+      foto2: req.files['foto2'] ? `uploads/${req.files['foto2'][0].filename}` : '',
+      foto3: req.files['foto3'] ? `uploads/${req.files['foto3'][0].filename}` : ''
+    };
+
+    const filteredFilepaths = Object.fromEntries(
+      Object.entries(filepaths).filter(([key, value]) => value !== '')
+    );
+
+    console.log("Upload procesado correctamente:", filteredFilepaths);
+    res.status(200).json(filteredFilepaths);
+  } catch (error) {
+    console.error("Error en el endpoint de upload:", error);
+    res.status(500).json({ message: "Error al procesar los archivos", error: error.message });
   }
-
-  const filepaths = {
-    foto: req.files['foto'] ? `uploads/${req.files['foto'][0].filename}` : '',
-    foto2: req.files['foto2'] ? `uploads/${req.files['foto2'][0].filename}` : '',
-    foto3: req.files['foto3'] ? `uploads/${req.files['foto3'][0].filename}` : ''
-  };
-
-  const filteredFilepaths = Object.fromEntries(
-    Object.entries(filepaths).filter(([key, value]) => value !== '')
-  );
-
-  res.status(200).json(filteredFilepaths);
 });
 
+// Función base64ToFile sin modificaciones
 const base64ToFile = (base64Str, fileName) => {
   const matches = base64Str.match(/^data:image\/([A-Za-z-+\/]+);base64,(.+)$/);
   const response = {};
@@ -76,6 +102,7 @@ const base64ToFile = (base64Str, fileName) => {
   return relativePath;
 };
 
+// Configuración de pool para la base de datos
 const pool = mysql.createPool({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
@@ -124,7 +151,6 @@ async function testDbConnection() {
 
 // Verificamos la conexión al inicio
 testDbConnection();
-
 
 
 
