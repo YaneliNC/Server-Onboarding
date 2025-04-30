@@ -2,97 +2,106 @@ import express from "express";
 import mysql from "mysql2";
 import cors from "cors";
 import dotenv from "dotenv";
+import multer from "multer";
+import path from "path";
+import { fileURLToPath } from "url";
+import { dirname } from "path";
+import fs from "fs";
 
 dotenv.config();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 const app = express();
-
-// Configuración mejorada de CORS
-app.use(cors({
-  origin: '*',
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
-
-// Middleware para preflight CORS requests
-app.options('*', cors());
-
+app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// IMPORTANTE: En Vercel no podemos usar el sistema de archivos para guardar archivos
-// Así que aquí simulamos el endpoint de upload para que no falle, pero no guardará los archivos
-app.post('/upload', (req, res) => {
-  try {
-    console.log("Simulando procesamiento de upload en Vercel");
-    
-    // Responder con rutas ficticias como si se hubieran guardado los archivos
-    const filepaths = {
-      foto: req.body.foto ? 'uploads/foto-temp.jpg' : '',
-      foto2: req.body.foto2 ? 'uploads/foto2-temp.jpg' : '',
-      foto3: req.body.foto3 ? 'uploads/foto3-temp.jpg' : ''
-    };
-
-    const filteredFilepaths = Object.fromEntries(
-      Object.entries(filepaths).filter(([key, value]) => value !== '')
-    );
-
-    console.log("Upload simulado correctamente:", filteredFilepaths);
-    res.status(200).json(filteredFilepaths);
-  } catch (error) {
-    console.error("Error en el endpoint de upload:", error);
-    res.status(500).json({ message: "Error al procesar los archivos", error: error.message });
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, 'uploads/');
+  },
+  filename: (req, file, cb) => {
+    cb(null, `${file.fieldname}-${Date.now()}${path.extname(file.originalname)}`);
   }
 });
 
-// Configuración simplificada de pool para la base de datos
-const pool = mysql.createPool({
+const upload = multer({ storage });
+
+app.post('/upload', upload.fields([
+  { name: 'foto', maxCount: 1 },
+  { name: 'foto2', maxCount: 1 },
+  { name: 'foto3', maxCount: 1 }
+]), (req, res) => {
+  if (!req.files) {
+    return res.status(400).json({ message: 'No se subieron archivos' });
+  }
+
+  const filepaths = {
+    foto: req.files['foto'] ? `uploads/${req.files['foto'][0].filename}` : '',
+    foto2: req.files['foto2'] ? `uploads/${req.files['foto2'][0].filename}` : '',
+    foto3: req.files['foto3'] ? `uploads/${req.files['foto3'][0].filename}` : ''
+  };
+
+  const filteredFilepaths = Object.fromEntries(
+    Object.entries(filepaths).filter(([key, value]) => value !== '')
+  );
+
+  res.status(200).json(filteredFilepaths);
+});
+
+const base64ToFile = (base64Str, fileName) => {
+  const matches = base64Str.match(/^data:image\/([A-Za-z-+\/]+);base64,(.+)$/);
+  const response = {};
+
+  if (!matches || matches.length !== 3) {
+    return new Error('Formato de base64 inválido');
+  }
+
+  response.type = matches[1];
+  response.data = Buffer.from(matches[2], 'base64');
+
+  const uniqueId = crypto.randomBytes(16).toString('hex');
+  const newFileName = `${fileName}-${uniqueId}${path.extname(fileName)}`;
+  const relativePath = path.join('uploads', newFileName);
+  const absolutePath = path.join(__dirname, relativePath);
+
+  fs.writeFileSync(absolutePath, response.data, { encoding: 'base64' });
+
+  return relativePath;
+};
+
+const db = mysql.createConnection({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
   port: process.env.DB_PORT,
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0
+  connectTimeout: 10000 // Añade un tiempo de espera para la conexión
 });
 
-// Función para ejecutar queries de forma más eficiente
-function executeQuery(query, params = []) {
-  return new Promise((resolve, reject) => {
-    pool.getConnection((err, connection) => {
-      if (err) {
-        console.error("Error al obtener conexión:", err);
-        return reject(err);
-      }
-      
-      connection.query(query, params, (error, results) => {
-        connection.release(); // Siempre liberar la conexión
-        
-        if (error) {
-          console.error("Error al ejecutar query:", error);
-          return reject(error);
-        }
-        
-        resolve(results);
-      });
-    });
+function handleDisconnect() {
+  db.connect(err => {
+    if (err) {
+      console.error('Error al conectar con la BD:', err);
+      setTimeout(handleDisconnect, 2000);
+    } else {
+      console.log('Conectado a la base de datos');
+    }
+  });
+
+  db.on('error', err => {
+    console.error('Error en la conexión con la BD:', err);
+    if (err.code === 'PROTOCOL_CONNECTION_LOST') {
+      handleDisconnect();
+    } else {
+      throw err;
+    }
   });
 }
 
-// Función para verificar la conexión a la base de datos
-async function testDbConnection() {
-  try {
-    const result = await executeQuery("SELECT 1");
-    console.log("Conexión a la base de datos establecida correctamente");
-    return true;
-  } catch (err) {
-    console.error("Error al conectar con la base de datos:", err);
-    return false;
-  }
-}
+handleDisconnect();
 
-// Verificamos la conexión al inicio
-testDbConnection();
 
 
 
